@@ -1,0 +1,154 @@
+#!/usr/bin/python
+import socket
+import serial
+import time
+import sys
+import cwiid
+
+def limit(xVal):
+ if 62<xVal<68:
+  return 64
+ else:
+  return max(0,min(127,xVal))
+
+def go(x,y):
+ x=limit(x)
+ y=limit(y)
+ ser.write(chr(128))
+ ser.write(chr(6))
+ ser.write(chr(x))
+ ser.write(chr((128+6+x)&0x7F))
+ ser.write(chr(128))
+ ser.write(chr(7))
+ ser.write(chr(y))
+ ser.write(chr((128+7+y)&0x7F))
+
+#connect serial
+ser=serial.Serial('/dev/ttyAMA0',38400)
+
+#binding for single joystick
+sockSingle=socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sockSingle.bind(('',4444))
+sockSingle.setblocking(0)
+singleData=0
+
+#binding for dual joystick
+sockDual=socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sockDual.bind(('',4445))
+sockDual.setblocking(0)
+dualData=0
+
+lastSet=0
+timeout=0
+
+#Begin board setup
+#Connect to address given on command-line, if present
+print 'Put Wiimote in discoverable mode now (press 1+2)...'
+global wiimote
+if len(sys.argv) > 1:
+ wiimote = cwiid.Wiimote(sys.argv[1])
+else:
+ wiimote = cwiid.Wiimote()
+
+wiimote.rpt_mode = cwiid.RPT_BALANCE | cwiid.RPT_BTN
+wiimote.request_status()
+balance_calibration = wiimote.get_balance_cal()
+named_calibration = { 'right_top': balance_calibration[0],
+                                                  'right_bottom': balance_calibration[1],
+                                                  'left_top': balance_calibration[2],
+                                                  'left_bottom': balance_calibration[3],
+                                                }
+
+#Begin Calibration
+print 'Stand on board and press enter'
+c = sys.stdin.read(1)
+wiimote.request_status()
+center=wiimote.state['balance']
+print 'Lean forward and left, press enter'
+c = sys.stdin.read(1)
+wiimote.request_status()
+lf_cal=wiimote.state['balance']['left_top']
+print 'Lean back and left, press enter'
+c = sys.stdin.read(1)
+wiimote.request_status()
+lb_cal=wiimote.state['balance']['left_bottom']
+print 'Lean back and right, press enter'
+c = sys.stdin.read(1)
+wiimote.request_status()
+rb_cal=wiimote.state['balance']['right_bottom']
+print 'Lean forward and right, press enter'
+c = sys.stdin.read(1)
+wiimote.request_status()
+rf_cal=wiimote.state['balance']['right_top']
+#determine ranges
+lf_range=lf_cal-center['left_top']
+lb_range=lf_cal-center['left_bottom']
+rb_range=rb_cal-center['right_bottom']
+rf_range=rf_cal-center['right_top']
+def calculate_xy():
+ wiimote.request_status()
+ lf=max(0,wiimote.state['balance']['left_top']-center['left_top'])
+ rf=max(0,wiimote.state['balance']['right_top']-center['right_top'])
+ lb=max(0,wiimote.state['balance']['left_bottom']-center['left_bottom'])
+ rb=max(0,wiimote.state['balance']['right_bottom']-center['right_bottom'])
+ left=(lf*1.0/lf_range)+(1.0*lb/lb_range)
+ right=(1.0*rf/rf_range)+(1.0*rb/rb_range)
+ y=max(0,min(128,int(right*64+64-left*64)))
+ front=(rf*1.0/rf_range)+(lf*1.0/lf_range)
+ back=(rb*1.0/rb_range)+(lb*1.0/lb_range)
+ x=max(0,min(128,int(front*64+64-back*64)))
+ return [x,y]
+
+count=0
+oldCoords=[0,0]
+
+while 1:
+ coords=calculate_xy()
+ if count==0:
+  if oldCoords[0]==coords[0] and oldCoords[1]==coords[1]:
+   coords=[64,64]
+  oldCoords=coords
+ count=(count+1)%5
+ print coords
+ go(coords[1],coords[0])
+ time.sleep(0.01)
+#Single stick mode
+ try:
+  data,addr=sockSingle.recvfrom(1024)
+  singleData=1
+ except:
+  pass
+ if singleData==1:
+  left=64
+  right=64
+  x=int(((float(0.000065*(ord(data[0])-127)**3)+127)/255)*127)
+  y=127-int(((float(0.000065*(ord(data[1])-127)**3)+127)/255)*127)
+  if x<64:
+   left=y-(64-x)
+   right=y+64-x
+  else:
+   left=y+x-64
+   right=y-(x-64)
+  print str(limit(left))+','+str(limit(right))
+  go(left,right)
+  singleData=0
+  lastSet=time.time()
+  timeout=0
+#Dual stick mode
+ try:
+  data,addr=sockDual.recvfrom(1024)
+  dualData=1
+ except:
+  pass
+ if dualData==1:
+  left=int(((float(0.000065*(ord(data[0])-127)**3)+127)/255)*127)
+  right=int(((float(0.000065*(ord(data[2])-127)**3)+127)/255)*127)
+  print str(limit(left))+','+str(limit(right))
+  go(left,right)
+  dualData=0
+  lastSet=time.time()
+  timeout=0
+ if time.time()-lastSet>.5 and timeout!=1:
+  print '64,64'
+  timeout=1
+  go(64,64)
