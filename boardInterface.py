@@ -66,6 +66,17 @@ def main():
 		x=max(0,min(128,int(front*64+64-back*64)))
 		return [x,y]
 
+	def tank_translate(forward, side):
+		if forward<64:
+			left=side-(64-forward)
+			right=side+64-forward
+		else:
+			left=side+64-forward
+			right=side-(64-forward)
+		left=min(254,max(0,left))
+		right=min(254,max(0,right))
+		return [left,right]
+
 	def accel(target,current):
 		x=(target[0]-current[0])*.1+current[0]
 		y=(target[1]-current[1])*.2+current[1]
@@ -77,6 +88,7 @@ def main():
 	prev_coords=[64,64]
 	while 1:
 		coords=calculate_xy()
+		#coords=tank_translate(coords[0],coords[1])
 		coords=accel(coords,prev_coords);
 		print coords
 		prev_coords=coords
