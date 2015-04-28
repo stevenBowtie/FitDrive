@@ -65,13 +65,25 @@ def main():
 		back=(rb*1.0/rb_range)+(lb*1.0/lb_range)
 		x=max(0,min(128,int(front*64+64-back*64)))
 		return [x,y]
-		
-#	sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) 
+
+	def accel(target,current):
+		x=(target[0]-current[0])*.1+current[0]
+		y=(target[1]-current[1])*.2+current[1]
+		return [int(x),int(y)]
+
+	sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+	#sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
+	#sock.connect(('192.168.11.4',4444))
+	prev_coords=[64,64]
 	while 1:
 		coords=calculate_xy()
+		coords=accel(coords,prev_coords);
 		print coords
+		prev_coords=coords
+		#mesg=str(coords[0])+','+str(coords[1])+';'
 		mesg=chr(coords[0])+chr(coords[1])
-		sleep(0.1)
-		#result=sock.sendto(mesg, ('10.10.2.20', 4444))
-		#print result
+		sleep(0.025)
+		#result=sock.send(mesg)
+		result=sock.sendto(mesg, '/tmp/driveSocket')
+		print result
 main()
